@@ -1,0 +1,45 @@
+name: Real Windows RDP VM
+on:
+  workflow_dispatch:
+    inputs:
+      ngrok_token:
+        description: 'Ngrok Token'
+        required: true
+      rdp_password:
+        description: 'RDP Password'
+        required: true
+
+jobs:
+  windows-rdp:
+    runs-on: windows-latest
+    timeout-minutes: 360
+    steps:
+      - name: Enable Remote Desktop & Configure Admin User
+        run: |
+          net user runneradmin "${{ github.event.inputs.rdp_password }}"
+          Set-ItemProperty -Path 'HKLM:\System\CurrentControlSet\Control\Terminal Server' -name "fDenyTSConnections" -Value 0
+          Enable-NetFirewallRule -DisplayGroup "Remote Desktop"
+          Set-ItemProperty -Path 'HKLM:\System\CurrentControlSet\Control\Terminal Server\WinStations\RDP-Tcp' -name "UserAuthentication" -Value 1
+
+      - name: Download & Start Ngrok TCP 3389 Tunnel
+        run: |
+          Invoke-WebRequest https://bin.equinox.io/c/bNyj1mQVY4c/ngrok-v3-stable-windows-amd64.zip -OutFile ngrok.zip
+          Expand-Archive ngrok.zip -DestinationPath . -Force
+          .\ngrok.exe config add-authtoken "${{ github.event.inputs.ngrok_token }}"
+          Start-Process .\ngrok.exe -ArgumentList "tcp 3389 --region ap" -NoNewWindow
+          Start-Sleep -Seconds 6
+          $tunnels = Invoke-RestMethod -Uri "http://127.0.0.1:4040/api/tunnels"
+          Write-Host "=========================================="
+          Write-Host "REAL WINDOWS RDP LIVE AT: $($tunnels.tunnels[0].public_url)"
+          Write-Host "USERNAME: runneradmin"
+          Write-Host "=========================================="
+
+      - name: Keep Windows VM Alive for Project Testing (6 Hours Max)
+        run: |
+          while ($true) {
+            $tunnels = Invoke-RestMethod -Uri "http://127.0.0.1:4040/api/tunnels" -ErrorAction SilentlyContinue
+            if ($tunnels) {
+              Write-Host "[ALIVE] RDP Endpoint: $($tunnels.tunnels[0].public_url) | User: runneradmin"
+            }
+            Start-Sleep -Seconds 30
+          }
