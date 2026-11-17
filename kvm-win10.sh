@@ -25,7 +25,8 @@ docker run -d --name win10-ltsc \
 
 # Download Linux bore binary
 curl -sL https://github.com/ekzhang/bore/releases/download/v0.6.0/bore-v0.6.0-x86_64-unknown-linux-musl.tar.gz | tar xz
-nohup ./bore local 3389 --to bore.pub > bore.log 2>&1 &
+chmod +x ./bore
+RUST_LOG=info nohup ./bore local 3389 --to bore.pub > bore.log 2>&1 &
 
 # Start Pinggy SSH TCP tunnels for RDP (3389) and Web VNC (8006)
 mkdir -p ~/.ssh
@@ -35,19 +36,43 @@ nohup ssh -p 443 -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o 
 
 sleep 6
 
+LOOP_COUNT=0
 while true; do
-  BORE_URL=$(grep -oE 'bore\.pub:[0-9]+' bore.log | head -n1 || true)
-  PINGGY_RDP=$(grep -oE 'tcp://[a-zA-Z0-9.-]+:[0-9]+' pinggy_rdp.log | head -n1 | sed 's|tcp://||' || true)
-  PINGGY_VNC=$(grep -oE 'https://[a-zA-Z0-9.-]+\.pinggy[^ ]*' pinggy_vnc.log | head -n1 || true)
-  RDP_READY="Installing Windows 10 LTSC ISO (Watch live on Web VNC)..."
-  if nc -z 127.0.0.1 3389 >/dev/null 2>&1; then
-    RDP_READY="Windows 10 Enterprise LTSC 22H2 READY on Port 3389!"
+  LOOP_COUNT=$((LOOP_COUNT + 1))
+
+  BORE_URL=$(sed 's/\x1b\[[0-9;]*m//g' bore.log 2>/dev/null | tr -d '\r' | grep -oE 'bore\.pub:[0-9]+' | head -n1 || true)
+  PINGGY_RDP=$(sed 's/\x1b\[[0-9;]*m//g' pinggy_rdp.log 2>/dev/null | tr -d '\r' | grep -oE 'tcp://[a-zA-Z0-9.-]+:[0-9]+' | head -n1 | sed 's|tcp://||' || true)
+  PINGGY_VNC=$(sed 's/\x1b\[[0-9;]*m//g' pinggy_vnc.log 2>/dev/null | tr -d '\r' | grep -oE 'https://[a-zA-Z0-9.-]+\.pinggy\.[a-z]+' | head -n1 || true)
+
+  # Probe real RDP X.224 handshake on 127.0.0.1:3389 (since docker-proxy opens TCP before Windows finishes booting)
+  X224_OK=$(python3 -c '
+import socket
+s = socket.socket()
+s.settimeout(2)
+try:
+  s.connect(("127.0.0.1", 3389))
+  s.sendall(bytes.fromhex("030000130ee000000000000100080003000000"))
+  d = s.recv(16)
+  print("1" if len(d) >= 6 and d[0] == 3 else "0")
+except Exception:
+  print("0")
+finally:
+  s.close()
+' 2>/dev/null || echo "0")
+
+  KVM_LINE=$(docker logs --tail 2 win10-ltsc 2>/dev/null | tr -d '\r' | tr '\n' ' ' | cut -c1-180 || true)
+  if [ "$X224_OK" = "1" ]; then
+    RDP_READY="Windows 10 Enterprise LTSC 22H2 READY! Ket noi Windows App ngay!"
+  else
+    RDP_READY="Dang tai/cai Windows 10 LTSC ISO (Mo Web VNC :8006 de xem truc tiep)..."
   fi
 
   PRIMARY="${BORE_URL:-$PINGGY_RDP}"
   BACKUP="${PINGGY_RDP:-$BORE_URL}"
 
-  PAYLOAD=$(python3 -c '
+  echo "[WinCloud KVM #$LOOP_COUNT] Bore=$BORE_URL | PinggyRDP=$PINGGY_RDP | WebVNC=$PINGGY_VNC | X224=$X224_OK"
+
+  PAYLOAD=$(PRIMARY="$PRIMARY" BACKUP="$BACKUP" PINGGY_VNC="$PINGGY_VNC" RDP_PASS="$RDP_PASS" RDP_READY="$RDP_READY" KVM_LINE="$KVM_LINE" python3 -c '
 import json, os, datetime
 obj = {
   "updatedAt": datetime.datetime.utcnow().isoformat() + "Z",
@@ -62,13 +87,14 @@ obj = {
   "totalRamMb": 5120,
   "logs": [
     os.environ.get("RDP_READY", ""),
+    "KVM: " + os.environ.get("KVM_LINE", ""),
     "Bore RDP: " + os.environ.get("PRIMARY", ""),
     "Pinggy RDP: " + os.environ.get("BACKUP", ""),
     "Web Browser VNC (:8006): " + os.environ.get("PINGGY_VNC", "")
   ]
 }
 print(json.dumps(obj))
-' PRIMARY="$PRIMARY" BACKUP="$BACKUP" PINGGY_VNC="$PINGGY_VNC" RDP_PASS="$RDP_PASS" RDP_READY="$RDP_READY")
+')
 
   B64=$(echo -n "$PAYLOAD" | base64 -w 0)
   SHA=$(curl -s -H "Authorization: Bearer $GH_TOKEN" "https://api.github.com/repos/$GH_REPO/contents/state/status.json" | python3 -c 'import sys,json; d=json.load(sys.stdin); print(d.get("sha",""))' 2>/dev/null || true)
@@ -79,5 +105,10 @@ print(json.dumps(obj))
     BODY="{\"message\":\"KVM Win10 Heartbeat\",\"content\":\"$B64\"}"
   fi
   curl -s -X PUT -H "Authorization: Bearer $GH_TOKEN" -H "Content-Type: application/json" -d "$BODY" "https://api.github.com/repos/$GH_REPO/contents/state/status.json" >/dev/null || true
-  sleep 20
+
+  if [ "$LOOP_COUNT" -le 3 ]; then
+    sleep 6
+  else
+    sleep 18
+  fi
 done
