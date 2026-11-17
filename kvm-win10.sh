@@ -34,6 +34,12 @@ mkdir -p ~/.ssh
 nohup ssh -p 443 -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o ServerAliveInterval=30 -T -R0:127.0.0.1:3389 tcp@free.pinggy.io < /dev/null > pinggy_rdp.log 2>&1 &
 nohup ssh -p 443 -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o ServerAliveInterval=30 -T -R0:127.0.0.1:8006 free.pinggy.io < /dev/null > pinggy_vnc.log 2>&1 &
 
+# Also start Cloudflared Quick Tunnel for Web VNC (:8006) so browser preview is always reliable
+curl -sL https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-amd64 -o ./cloudflared && chmod +x ./cloudflared || true
+if [ -x ./cloudflared ]; then
+  nohup ./cloudflared tunnel --url http://127.0.0.1:8006 --no-autoupdate > cf_vnc.log 2>&1 &
+fi
+
 sleep 6
 
 LOOP_COUNT=0
@@ -42,7 +48,9 @@ while true; do
 
   BORE_URL=$(sed 's/\x1b\[[0-9;]*m//g' bore.log 2>/dev/null | tr -d '\r' | grep -oE 'bore\.pub:[0-9]+' | head -n1 || true)
   PINGGY_RDP=$(sed 's/\x1b\[[0-9;]*m//g' pinggy_rdp.log 2>/dev/null | tr -d '\r' | grep -oE 'tcp://[a-zA-Z0-9.-]+:[0-9]+' | head -n1 | sed 's|tcp://||' || true)
-  PINGGY_VNC=$(sed 's/\x1b\[[0-9;]*m//g' pinggy_vnc.log 2>/dev/null | tr -d '\r' | grep -oE 'https://[a-zA-Z0-9.-]+\.pinggy\.[a-z]+' | head -n1 || true)
+  CF_VNC=$(grep -oE 'https://[a-zA-Z0-9-]+\.trycloudflare\.com' cf_vnc.log 2>/dev/null | head -n1 || true)
+  PINGGY_VNC=$(sed 's/\x1b\[[0-9;]*m//g' pinggy_vnc.log 2>/dev/null | tr -d '\r' | grep -oE 'https://[a-zA-Z0-9.-]+\.(free\.pinggy\.link|pinggy\.link)' | grep -v 'dashboard' | head -n1 || true)
+  WEB_VNC="${CF_VNC:-$PINGGY_VNC}"
 
   # Probe real RDP X.224 handshake on 127.0.0.1:3389 (since docker-proxy opens TCP before Windows finishes booting)
   X224_OK=$(python3 -c '
@@ -70,17 +78,18 @@ finally:
   PRIMARY="${BORE_URL:-$PINGGY_RDP}"
   BACKUP="${PINGGY_RDP:-$BORE_URL}"
 
-  echo "[WinCloud KVM #$LOOP_COUNT] Bore=$BORE_URL | PinggyRDP=$PINGGY_RDP | WebVNC=$PINGGY_VNC | X224=$X224_OK"
+  echo "[WinCloud KVM #$LOOP_COUNT] Bore=$BORE_URL | PinggyRDP=$PINGGY_RDP | WebVNC=$WEB_VNC | X224=$X224_OK"
 
-  PAYLOAD=$(PRIMARY="$PRIMARY" BACKUP="$BACKUP" PINGGY_VNC="$PINGGY_VNC" RDP_PASS="$RDP_PASS" RDP_READY="$RDP_READY" KVM_LINE="$KVM_LINE" python3 -c '
+  PAYLOAD=$(PRIMARY="$PRIMARY" BACKUP="$BACKUP" WEB_VNC="$WEB_VNC" RDP_PASS="$RDP_PASS" RDP_READY="$RDP_READY" KVM_LINE="$KVM_LINE" X224_OK="$X224_OK" python3 -c '
 import json, os, datetime
 obj = {
   "updatedAt": datetime.datetime.utcnow().isoformat() + "Z",
   "hostname": "WIN10-LTSC-KVM",
   "osCaption": "Microsoft Windows 10 Enterprise LTSC 22H2 (Real KVM)",
+  "rdpReady": (os.environ.get("X224_OK") == "1"),
   "publicRdpUrl": os.environ.get("PRIMARY", ""),
   "backupRdpUrl": os.environ.get("BACKUP", ""),
-  "webVncUrl": os.environ.get("PINGGY_VNC", ""),
+  "webVncUrl": os.environ.get("WEB_VNC", ""),
   "username": "runneradmin",
   "password": os.environ.get("RDP_PASS", ""),
   "freeRamMb": 4096,
@@ -90,7 +99,7 @@ obj = {
     "KVM: " + os.environ.get("KVM_LINE", ""),
     "Bore RDP: " + os.environ.get("PRIMARY", ""),
     "Pinggy RDP: " + os.environ.get("BACKUP", ""),
-    "Web Browser VNC (:8006): " + os.environ.get("PINGGY_VNC", "")
+    "Web Browser VNC (:8006): " + os.environ.get("WEB_VNC", "")
   ]
 }
 print(json.dumps(obj))
