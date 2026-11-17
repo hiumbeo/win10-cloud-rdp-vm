@@ -1,6 +1,6 @@
 {
   "seq": 1,
-  "id": "wincmd-1794952206129",
+  "id": "wincmd-1794953633046",
   "type": "powershell",
-  "command": "Start-Process taskmgr.exe"
+  "command": "$r = Invoke-RestMethod \"https://api.github.com/repos/pal1000/mesa-dist-win/releases/latest\"; $a = $r.assets | Where-Object { $_.name -like \"*release-msvc.7z\" } | Select-Object -First 1; Invoke-WebRequest $a.browser_download_url -OutFile C:\\mesa.7z; 7z x C:\\mesa.7z -oC:\\mesa -y; cmd /c \"C:\\mesa\\systemwidedeploy.cmd auto\"; [Environment]::SetEnvironmentVariable(\"GALLIUM_DRIVER\",\"llvmpipe\",\"Machine\"); [Environment]::SetEnvironmentVariable(\"MESA_GL_VERSION_OVERRIDE\",\"4.5\",\"Machine\"); Write-Output \"Mesa3D OpenGL 4.5 Software GPU installed\""
 }
