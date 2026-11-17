@@ -1,4 +1,4 @@
-name: Auto-Connect Windows Cloud VM
+name: Windows 10 Classic VM (windows-2022)
 on:
   workflow_dispatch:
     inputs:
@@ -12,15 +12,19 @@ on:
 permissions:
   contents: write
 
+concurrency:
+  group: wincloud-single-vm
+  cancel-in-progress: true
+
 jobs:
   windows-rdp:
-    runs-on: windows-latest
+    runs-on: windows-2022
     timeout-minutes: 360
     steps:
       - name: Checkout Agent Script
         uses: actions/checkout@v4
 
-      - name: Boot & Auto-Connect Windows VM
+      - name: Boot Lightweight Windows 10-gen RDP
         shell: powershell
         env:
           RDP_PASS: ${{ github.event.inputs.rdp_password }}
