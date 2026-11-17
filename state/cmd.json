@@ -1,6 +1,6 @@
 {
-  "seq": 3,
-  "id": "wincmd-1794955024762",
+  "seq": 4,
+  "id": "wincmd-1794955032024",
   "type": "powershell",
-  "command": "systeminfo | findstr /B /C:\"OS Name\" /C:\"OS Version\""
+  "command": "winget install Microsoft.VCRedist.2015+.x64 --silent --accept-package-agreements --accept-source-agreements"
 }
