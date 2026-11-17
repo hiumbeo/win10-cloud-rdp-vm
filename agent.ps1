@@ -141,6 +141,7 @@ function Publish-Status($force) {
     updatedAt        = (Get-Date).ToUniversalTime().ToString("o")
     hostname         = $env:COMPUTERNAME
     osCaption        = $osInfo.Caption
+    rdpReady         = $true
     publicRdpUrl     = $primaryRdp
     backupRdpUrl     = $backupRdp
     username         = "runneradmin"
