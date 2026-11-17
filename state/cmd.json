@@ -1,6 +1,6 @@
 {
-  "seq": 5,
-  "id": "wincmd-1794955106407",
+  "seq": 6,
+  "id": "wincmd-1794955109914",
   "type": "powershell",
-  "command": "systeminfo | findstr /B /C:\"OS Name\" /C:\"OS Version\""
+  "command": "Get-CimInstance Win32_VideoController | Select Name, AdapterRAM, DriverVersion"
 }
