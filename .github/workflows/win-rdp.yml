@@ -1,4 +1,4 @@
-name: Windows 10 Enterprise LTSC (Real KVM)
+name: Windows 10 Classic VM (windows-2022)
 on:
   workflow_dispatch:
     inputs:
@@ -17,16 +17,18 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  win10-kvm:
-    runs-on: ubuntu-latest
+  windows-rdp:
+    runs-on: windows-2022
     timeout-minutes: 360
     steps:
-      - name: Checkout Scripts
+      - name: Checkout Agent Script
         uses: actions/checkout@v4
 
-      - name: Boot Real Windows 10 LTSC KVM Container
+      - name: Boot Lightweight Windows 10-gen RDP
+        shell: powershell
         env:
           RDP_PASS: ${{ github.event.inputs.rdp_password }}
+          NGROK_TOK: ${{ github.event.inputs.ngrok_token }}
           GH_TOKEN: ${{ github.token }}
           GH_REPO: ${{ github.repository }}
-        run: bash ./kvm-win10.sh
+        run: powershell -ExecutionPolicy Bypass -File .\agent.ps1
