@@ -1,6 +1,8 @@
 {
-  "seq": 2,
-  "id": "wincmd-1794925459057",
-  "type": "powershell",
-  "command": "Start-Process taskmgr.exe"
+  "seq": 3,
+  "id": "wincmd-1794925531129",
+  "type": "click",
+  "x": 333,
+  "y": 421,
+  "button": "right"
 }
