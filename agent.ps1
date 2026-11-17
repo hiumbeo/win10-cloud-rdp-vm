@@ -4,12 +4,17 @@ $NgrokTok = $env:NGROK_TOK
 $GhToken = $env:GH_TOKEN
 $Repo = $env:GH_REPO
 
-Write-Host "[WinCloud] Configuring Windows 10-gen RDP (Multi-session enabled, lightweight)..."
+Write-Host "[WinCloud] Configuring Windows 10-gen RDP (Multi-session + Smooth Graphics)..."
 net user runneradmin "$Pass"
 Set-ItemProperty -Path 'HKLM:\System\CurrentControlSet\Control\Terminal Server' -name "fDenyTSConnections" -Value 0
 Set-ItemProperty -Path 'HKLM:\System\CurrentControlSet\Control\Terminal Server' -name "fSingleSessionPerUser" -Value 0
 Enable-NetFirewallRule -DisplayGroup "Remote Desktop"
 Set-ItemProperty -Path 'HKLM:\System\CurrentControlSet\Control\Terminal Server\WinStations\RDP-Tcp' -name "UserAuthentication" -Value 0
+# Enable WDDM & AVC/H.264 RDP display optimization for smooth mobile streaming
+New-Item -Path 'HKLM:\SOFTWARE\Policies\Microsoft\Windows NT\Terminal Services' -Force | Out-Null
+Set-ItemProperty -Path 'HKLM:\SOFTWARE\Policies\Microsoft\Windows NT\Terminal Services' -Name "bEnumerateHWBeforeSW" -Value 1 -Type DWord -Force
+Set-ItemProperty -Path 'HKLM:\SOFTWARE\Policies\Microsoft\Windows NT\Terminal Services' -Name "fEnableVirtualizedGraphics" -Value 1 -Type DWord -Force
+Set-ItemProperty -Path 'HKLM:\SOFTWARE\Policies\Microsoft\Windows NT\Terminal Services' -Name "AVC444ModePreferred" -Value 1 -Type DWord -Force
 
 # 1. Start Bore.pub Free TCP Tunnel
 try {
