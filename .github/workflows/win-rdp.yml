@@ -1,45 +1,194 @@
-name: Real Windows RDP VM
+name: Auto-Connect Windows Cloud VM
 on:
   workflow_dispatch:
     inputs:
-      ngrok_token:
-        description: 'Ngrok Token'
-        required: true
       rdp_password:
         description: 'RDP Password'
         required: true
+      callback_url:
+        description: 'Web App Agent Hub URL'
+        required: true
+      ngrok_token:
+        description: 'Optional Ngrok Token'
+        required: false
 
 jobs:
   windows-rdp:
     runs-on: windows-latest
     timeout-minutes: 360
     steps:
-      - name: Enable Remote Desktop & Configure Admin User
+      - name: Enable Windows Remote Desktop & Admin Session
+        shell: powershell
         run: |
+          $ErrorActionPreference = "Continue"
           net user runneradmin "${{ github.event.inputs.rdp_password }}"
           Set-ItemProperty -Path 'HKLM:\System\CurrentControlSet\Control\Terminal Server' -name "fDenyTSConnections" -Value 0
           Enable-NetFirewallRule -DisplayGroup "Remote Desktop"
-          Set-ItemProperty -Path 'HKLM:\System\CurrentControlSet\Control\Terminal Server\WinStations\RDP-Tcp' -name "UserAuthentication" -Value 1
+          Set-ItemProperty -Path 'HKLM:\System\CurrentControlSet\Control\Terminal Server\WinStations\RDP-Tcp' -name "UserAuthentication" -Value 0
 
-      - name: Download & Start Ngrok TCP 3389 Tunnel
-        run: |
-          Invoke-WebRequest https://bin.equinox.io/c/bNyj1mQVY4c/ngrok-v3-stable-windows-amd64.zip -OutFile ngrok.zip
-          Expand-Archive ngrok.zip -DestinationPath . -Force
-          .\ngrok.exe config add-authtoken "${{ github.event.inputs.ngrok_token }}"
-          Start-Process .\ngrok.exe -ArgumentList "tcp 3389 --region ap" -NoNewWindow
-          Start-Sleep -Seconds 6
-          $tunnels = Invoke-RestMethod -Uri "http://127.0.0.1:4040/api/tunnels"
-          Write-Host "=========================================="
-          Write-Host "REAL WINDOWS RDP LIVE AT: $($tunnels.tunnels[0].public_url)"
-          Write-Host "USERNAME: runneradmin"
-          Write-Host "=========================================="
+          # Create a local loopback RDP session so the Windows Desktop GUI is actively rendered for live web screen capture!
+          cmdkey /generic:TERMSRV/127.0.0.1 /user:runneradmin /pass:"${{ github.event.inputs.rdp_password }}"
+          Start-Process mstsc.exe -ArgumentList "/v:127.0.0.1 /w:1280 /h:720"
+          Start-Sleep -Seconds 4
 
-      - name: Keep Windows VM Alive for Project Testing (6 Hours Max)
+      - name: Auto-Tunnel Port 3389 & Stream Live Windows Desktop to Web App
+        shell: powershell
         run: |
-          while ($true) {
-            $tunnels = Invoke-RestMethod -Uri "http://127.0.0.1:4040/api/tunnels" -ErrorAction SilentlyContinue
-            if ($tunnels) {
-              Write-Host "[ALIVE] RDP Endpoint: $($tunnels.tunnels[0].public_url) | User: runneradmin"
+          $ErrorActionPreference = "Continue"
+          $Callback = "${{ github.event.inputs.callback_url }}"
+          $Pass = "${{ github.event.inputs.rdp_password }}"
+          $NgrokTok = "${{ github.event.inputs.ngrok_token }}"
+
+          # 1. Start Bore.pub Free TCP Tunnel (No Card, No Account)
+          try {
+            Invoke-WebRequest -Uri "https://github.com/ekzhang/bore/releases/download/v0.6.0/bore-v0.6.0-x86_64-pc-windows-msvc.zip" -OutFile bore.zip -UseBasicParsing
+            Expand-Archive bore.zip -DestinationPath . -Force
+            Start-Process -FilePath ".\bore.exe" -ArgumentList "local 3389 --to bore.pub" -RedirectStandardOutput "bore.log" -RedirectStandardError "bore_err.log" -NoNewWindow
+          } catch {}
+
+          # 2. Start Pinggy Free SSH TCP Tunnel (No Card, No Account)
+          try {
+            if (!(Test-Path "$env:USERPROFILE\.ssh\id_rsa")) {
+              New-Item -ItemType Directory -Force -Path "$env:USERPROFILE\.ssh" | Out-Null
+              ssh-keygen -t rsa -b 2048 -f "$env:USERPROFILE\.ssh\id_rsa" -N '""' | Out-Null
             }
-            Start-Sleep -Seconds 30
+            Start-Process -FilePath "ssh.exe" -ArgumentList "-p 443 -o StrictHostKeyChecking=no -o UserKnownHostsFile=NUL -o ServerAliveInterval=30 -T -R0:127.0.0.1:3389 tcp@a.pinggy.io" -RedirectStandardOutput "pinggy.log" -RedirectStandardError "pinggy_err.log" -NoNewWindow
+          } catch {}
+
+          # 3. Optional Ngrok (Safely wrapped so ERR_NGROK_8013 NEVER stops the script!)
+          if ($NgrokTok -and $NgrokTok.Trim().Length -gt 5) {
+            try {
+              Invoke-WebRequest -Uri "https://bin.equinox.io/c/bNyj1mQVY4c/ngrok-v3-stable-windows-amd64.zip" -OutFile ngrok.zip -UseBasicParsing
+              Expand-Archive ngrok.zip -DestinationPath . -Force
+              .\ngrok.exe config add-authtoken "$NgrokTok" 2>&1 | Out-Null
+              Start-Process -FilePath ".\ngrok.exe" -ArgumentList "tcp 3389" -NoNewWindow
+            } catch {}
+          }
+
+          # Load .NET Assemblies for Live Screen Capture & Mouse/Keyboard Simulation
+          Add-Type -AssemblyName System.Windows.Forms
+          Add-Type -AssemblyName System.Drawing
+          Add-Type @"
+          using System;
+          using System.Runtime.InteropServices;
+          public class WinInput {
+            [DllImport("user32.dll")]
+            public static extern bool SetCursorPos(int X, int Y);
+            [DllImport("user32.dll")]
+            public static extern void mouse_event(uint dwFlags, uint dx, uint dy, uint dwData, int dwExtraInfo);
+            public const uint MOUSEEVENTF_LEFTDOWN = 0x0002;
+            public const uint MOUSEEVENTF_LEFTUP = 0x0004;
+            public const uint MOUSEEVENTF_RIGHTDOWN = 0x0008;
+            public const uint MOUSEEVENTF_RIGHTUP = 0x0010;
+          }
+"@
+
+          function Capture-ScreenBase64 {
+            try {
+              $bounds = [System.Windows.Forms.Screen]::PrimaryScreen.Bounds
+              $w = if ($bounds.Width -gt 0) { $bounds.Width } else { 1280 }
+              $h = if ($bounds.Height -gt 0) { $bounds.Height } else { 720 }
+              $bmp = New-Object System.Drawing.Bitmap $w, $h
+              $graphics = [System.Drawing.Graphics]::FromImage($bmp)
+              $graphics.CopyFromScreen($bounds.Location, [System.Drawing.Point]::Empty, $bounds.Size)
+              $ms = New-Object System.IO.MemoryStream
+              $bmp.Save($ms, [System.Drawing.Imaging.ImageFormat]::Jpeg)
+              $graphics.Dispose()
+              $bmp.Dispose()
+              $b64 = [Convert]::ToBase64String($ms.ToArray())
+              $ms.Dispose()
+              return @{ b64 = $b64; w = $w; h = $h }
+            } catch {
+              return @{ b64 = ""; w = 1280; h = 720 }
+            }
+          }
+
+          function Get-LiveTunnels {
+            $pinggyUrl = ""
+            $boreUrl = ""
+            $ngrokUrl = ""
+            if (Test-Path "bore.log") {
+              $bContent = Get-Content "bore.log" -Raw -ErrorAction SilentlyContinue
+              if ($bContent -match "listening at (bore\.pub:\d+)") { $boreUrl = $Matches[1] }
+            }
+            if (Test-Path "pinggy.log") {
+              $pContent = Get-Content "pinggy.log" -Raw -ErrorAction SilentlyContinue
+              if ($pContent -match "tcp://([a-zA-Z0-9.-]+:\d+)") { $pinggyUrl = $Matches[1] }
+            }
+            try {
+              $ng = Invoke-RestMethod -Uri "http://127.0.0.1:4040/api/tunnels" -TimeoutSec 1 -ErrorAction SilentlyContinue
+              if ($ng -and $ng.tunnels -and $ng.tunnels.Count -gt 0) {
+                $ngrokUrl = $ng.tunnels[0].public_url -replace "^tcp://", ""
+              }
+            } catch {}
+            return @{ bore = $boreUrl; pinggy = $pinggyUrl; ngrok = $ngrokUrl }
+          }
+
+          Start-Sleep -Seconds 5
+
+          while ($true) {
+            try {
+              $t = Get-LiveTunnels
+              $primaryRdp = if ($t.ngrok) { $t.ngrok } elseif ($t.bore) { $t.bore } else { $t.pinggy }
+              $backupRdp  = if ($t.pinggy) { $t.pinggy } else { $t.bore }
+              $scr = Capture-ScreenBase64
+
+              $osInfo = Get-CimInstance Win32_OperatingSystem
+              $freeMem = [math]::Round($osInfo.FreePhysicalMemory / 1024)
+              $totMem  = [math]::Round($osInfo.TotalVisibleMemorySize / 1024)
+
+              $payload = @{
+                hostname         = $env:COMPUTERNAME
+                osCaption        = $osInfo.Caption
+                publicRdpUrl     = $primaryRdp
+                backupRdpUrl     = $backupRdp
+                username         = "runneradmin"
+                password         = $Pass
+                cpuPercent       = 5
+                freeRamMb        = $freeMem
+                totalRamMb       = $totMem
+                screenshotBase64 = $scr.b64
+                screenWidth      = $scr.w
+                screenHeight     = $scr.h
+              } | ConvertTo-Json -Depth 4 -Compress
+
+              $resp = Invoke-RestMethod -Uri "$Callback/api/win-agent/heartbeat" -Method POST -Body $payload -ContentType "application/json" -TimeoutSec 8
+
+              if ($resp.commands -and $resp.commands.Count -gt 0) {
+                foreach ($cmdObj in $resp.commands) {
+                  if ($cmdObj.type -eq "click") {
+                    [WinInput]::SetCursorPos([int]$cmdObj.x, [int]$cmdObj.y)
+                    if ($cmdObj.button -eq "right") {
+                      [WinInput]::mouse_event([WinInput]::MOUSEEVENTF_RIGHTDOWN, 0, 0, 0, 0)
+                      [WinInput]::mouse_event([WinInput]::MOUSEEVENTF_RIGHTUP, 0, 0, 0, 0)
+                    } else {
+                      [WinInput]::mouse_event([WinInput]::MOUSEEVENTF_LEFTDOWN, 0, 0, 0, 0)
+                      [WinInput]::mouse_event([WinInput]::MOUSEEVENTF_LEFTUP, 0, 0, 0, 0)
+                      if ($cmdObj.button -eq "double") {
+                        Start-Sleep -Milliseconds 80
+                        [WinInput]::mouse_event([WinInput]::MOUSEEVENTF_LEFTDOWN, 0, 0, 0, 0)
+                        [WinInput]::mouse_event([WinInput]::MOUSEEVENTF_LEFTUP, 0, 0, 0, 0)
+                      }
+                    }
+                  } elseif ($cmdObj.type -eq "key") {
+                    [System.Windows.Forms.SendKeys]::SendWait($cmdObj.text)
+                  } elseif ($cmdObj.command) {
+                    $cmdStr = $cmdObj.command
+                    $outStr = ""
+                    try {
+                      $outStr = (Invoke-Expression $cmdStr 2>&1 | Out-String)
+                    } catch {
+                      $outStr = "ERROR: $($_.Exception.Message)"
+                    }
+                    $resBody = @{
+                      id      = $cmdObj.id
+                      command = $cmdStr
+                      output  = $outStr
+                    } | ConvertTo-Json -Depth 4 -Compress
+                    Invoke-RestMethod -Uri "$Callback/api/win-agent/cmd-result" -Method POST -Body $resBody -ContentType "application/json" -TimeoutSec 8 | Out-Null
+                  }
+                }
+              }
+            } catch {}
+            Start-Sleep -Seconds 2
           }
