@@ -1,6 +1,6 @@
 {
-  "seq": 6,
-  "id": "wincmd-1794925666516",
+  "seq": 1,
+  "id": "wincmd-1794952206129",
   "type": "powershell",
   "command": "Start-Process taskmgr.exe"
 }
