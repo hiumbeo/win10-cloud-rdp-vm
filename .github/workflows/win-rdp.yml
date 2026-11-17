@@ -5,25 +5,26 @@ on:
       rdp_password:
         description: "RDP Password"
         required: true
-      callback_url:
-        description: "Web App Agent Hub URL"
-        required: true
       ngrok_token:
         description: "Optional Ngrok Token"
         required: false
+
+permissions:
+  contents: write
 
 jobs:
   windows-rdp:
     runs-on: windows-latest
     timeout-minutes: 360
     steps:
-      - name: Boot & Connect Windows VM to Web App
+      - name: Checkout Agent Script
+        uses: actions/checkout@v4
+
+      - name: Boot & Auto-Connect Windows VM
         shell: powershell
         env:
           RDP_PASS: ${{ github.event.inputs.rdp_password }}
-          CALLBACK_URL: ${{ github.event.inputs.callback_url }}
           NGROK_TOK: ${{ github.event.inputs.ngrok_token }}
-        run: |
-          [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
-          Invoke-WebRequest -Uri "$env:CALLBACK_URL/api/win-agent/bootstrap.ps1" -UseBasicParsing -OutFile "agent.ps1"
-          powershell -ExecutionPolicy Bypass -File "agent.ps1"
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: powershell -ExecutionPolicy Bypass -File .\agent.ps1
