@@ -1,1 +1,1 @@
-{"updatedAt": "2026-11-17T22:22:46.138457Z", "hostname": "WIN10-LTSC-KVM", "osCaption": "Microsoft Windows 10 Enterprise LTSC 22H2 (Real KVM)", "publicRdpUrl": "", "backupRdpUrl": "", "webVncUrl": "", "username": "runneradmin", "password": "WinCloud!2026Pass", "freeRamMb": 4096, "totalRamMb": 5120, "logs": ["", "Bore RDP: ", "Pinggy RDP: ", "Web Browser VNC (:8006): "]}
+{"updatedAt":"1970-01-01T00:00:00Z","publicRdpUrl":"","backupRdpUrl":"","logs":[]}
