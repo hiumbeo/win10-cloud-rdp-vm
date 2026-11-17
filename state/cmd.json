@@ -1,6 +1,5 @@
 {
-  "seq": 6,
-  "id": "wincmd-1794955109914",
-  "type": "powershell",
-  "command": "Get-CimInstance Win32_VideoController | Select Name, AdapterRAM, DriverVersion"
+  "seq": 7,
+  "id": "wincmd-1794955131770",
+  "type": "screenshot"
 }
