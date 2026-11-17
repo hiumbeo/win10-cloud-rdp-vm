@@ -1,8 +1,6 @@
 {
-  "seq": 3,
-  "id": "wincmd-1794925531129",
-  "type": "click",
-  "x": 333,
-  "y": 421,
-  "button": "right"
+  "seq": 4,
+  "id": "wincmd-1794925537642",
+  "type": "powershell",
+  "command": "Start-Process chrome.exe \"https://google.com\""
 }
