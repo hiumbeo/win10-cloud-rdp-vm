@@ -91,7 +91,6 @@ obj = {
   "backupRdpUrl": os.environ.get("BACKUP", ""),
   "webVncUrl": os.environ.get("WEB_VNC", ""),
   "username": "runneradmin",
-  "password": os.environ.get("RDP_PASS", ""),
   "freeRamMb": 4096,
   "totalRamMb": 5120,
   "logs": [
