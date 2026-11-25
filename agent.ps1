@@ -145,7 +145,6 @@ function Publish-Status($force) {
     publicRdpUrl     = $primaryRdp
     backupRdpUrl     = $backupRdp
     username         = "runneradmin"
-    password         = $Pass
     freeRamMb        = $freeMem
     totalRamMb       = $totMem
     lastAckedSeq     = $script:LastAckedSeq
